@@ -1,186 +1,152 @@
 /* eslint-disable no-prototype-builtins */
 "use strict";
 
-let request = promisifyPromise(require("request").defaults({ jar: true, proxy: process.env.FB_PROXY }));
+const getRandom = arr => arr[Math.floor(Math.random() * arr.length)];
+function randomUserAgent() {
+    const platform = {
+    platform: ['Windows NT 10.0; Win64; x64', 'Macintosh; Intel Mac OS X 14.7; rv:132.0'],
+    browsers: {
+        chrome: ['122.0.0.0', '121.0.0.0'],
+        firefox: ['123.0', '122.0'],
+        edge: ['122.0.2365.92']
+       }
+    };
+    const browserName = getRandom(Object.keys(platform.browsers));
+    const version = getRandom(platform.browsers[browserName]);
+    const plat = getRandom(platform.platform);
+    const userAgentArray = [
+          defaultUserAgent,
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3",
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.1 Safari/605.1.15",
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.12; rv:45.0) Gecko/20100101 Firefox/45.0",
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:66.0) Gecko/20100101 Firefox/66.0",
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/601.7.7 (KHTML, like Gecko) Version/9.1.2 Safari/601.7.7",
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_5) AppleWebKit/603.3.8 (KHTML, like Gecko) Version/10.1.2 Safari/603.3.8",
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/64.0.3282.140 Safari/537.3",
+    ];
+    const ua = getRandom([
+    browserName === 'firefox' ? `Mozilla/5.0 (${plat}) Gecko/20100101 Firefox/${version}` : `Mozilla/5.0 (${plat}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${version} Safari/537.36`,
+    getRandom(userAgentArray)
+    ]);
+    return ua;
+}
+const defaultUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.7; rv:132.0) Gecko/20100101 Firefox/132.0";
+const headers = {
+  "content-type": "application/x-www-form-urlencoded",
+  "referer": "https://www.facebook.com/",
+  "origin": "https://www.facebook.com",
+  "connection": "keep-alive",
+  "Sec-Fetch-Site": "same-origin",
+  "Sec-Fetch-User": "?1",
+  "User-Agent": defaultUserAgent
+};
+let request = require("request").defaults({
+  jar: true
+});
 const stream = require("stream");
-const log = require("npmlog");
 const querystring = require("querystring");
 const url = require("url");
 
-class CustomError extends Error {
-  constructor(obj) {
-    if (typeof obj === 'string')
-      obj = { message: obj };
-    if (typeof obj !== 'object' || obj === null)
-      throw new TypeError('Object required');
-    obj.message ? super(obj.message) : super();
-    Object.assign(this, obj);
-  }
-}
-
-function callbackToPromise(func) {
-  return function (...args) {
-    return new Promise((resolve, reject) => {
-      func(...args, (err, data) => {
-        if (err)
-          reject(err);
-        else
-          resolve(data);
-      });
-    });
-  };
-}
-
-function isHasCallback(func) {
-  if (typeof func !== "function")
-    return false;
-  return func.toString().split("\n")[0].match(/(callback|cb)\s*\)/) !== null;
-}
-
-// replace for bluebird.promisify (but this only applies best to the `request` package)
-function promisifyPromise(promise) {
-  const keys = Object.keys(promise);
-  let promise_;
-  if (
-    typeof promise === "function"
-    && isHasCallback(promise)
-  )
-    promise_ = callbackToPromise(promise);
-  else
-    promise_ = promise;
-
-  for (const key of keys) {
-    if (!promise[key]?.toString)
-      continue;
-
-    if (
-      typeof promise[key] === "function"
-      && isHasCallback(promise[key])
-    ) {
-      promise_[key] = callbackToPromise(promise[key]);
-    }
-    else {
-      promise_[key] = promise[key];
-    }
-  }
-
-  return promise_;
-}
-
-// replace for bluebird.delay
-function delay(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-// replace for bluebird.try
-function tryPromise(tryFunc) {
-  return new Promise((resolve, reject) => {
-    try {
-      resolve(tryFunc());
-    } catch (error) {
-      reject(error);
-    }
-  });
-}
-
-function setProxy(url) {
-  if (typeof url == "undefined")
-    return request = promisifyPromise(require("request").defaults({
-      jar: true
-    }));
-  return request = promisifyPromise(require("request").defaults({
+function setProxy(proxy) {
+  request = require("request").defaults({
     jar: true,
-    proxy: url
-  }));
+    ...(proxy && {
+      proxy
+    })
+  });
+  return;
 }
 
 function getHeaders(url, options, ctx, customHeader) {
-  const headers = {
-    "Content-Type": "application/x-www-form-urlencoded",
-    Referer: "https://www.facebook.com/",
-    Host: url.replace("https://", "").split("/")[0],
-    Origin: "https://www.facebook.com",
-    "User-Agent": options.userAgent,
-    Connection: "keep-alive",
-    "sec-fetch-site": "same-origin"
-  };
+  const headers1 = {
+    "host": new URL(url).hostname,
+    ...headers
+  }
+  if (headers1["User-Agent"]) {
+    delete headers1["User-Agent"];
+    headers1["User-Agent"] = customHeader?.customUserAgent ?? options?.userAgent ?? defaultUserAgent;
+  }
+  if (ctx && ctx.region) headers1["X-MSGR-Region"] = ctx.region;
   if (customHeader) {
-    Object.assign(headers, customHeader);
+    Object.assign(headers1, customHeader);
+    if (customHeader.noRef) delete headers1.referer;
   }
-  if (ctx && ctx.region) {
-    headers["X-MSGR-Region"] = ctx.region;
-  }
-
-  return headers;
+  return headers1;
 }
+
 
 function isReadableStream(obj) {
-  return (
-    obj instanceof stream.Stream &&
-    (getType(obj._read) === "Function" ||
-      getType(obj._read) === "AsyncFunction") &&
-    getType(obj._readableState) === "Object"
-  );
+  return obj instanceof stream.Stream && typeof obj._read == "function" && getType(obj._readableState) == "Object";
 }
 
-function get(url, jar, qs, options, ctx) {
-  // I'm still confused about this
-  if (getType(qs) === "Object") {
-    for (const prop in qs) {
-      if (qs.hasOwnProperty(prop) && getType(qs[prop]) === "Object") {
-        qs[prop] = JSON.stringify(qs[prop]);
-      }
-    }
-  }
-  const op = {
-    headers: getHeaders(url, options, ctx),
-    timeout: 60000,
-    qs: qs,
-    url: url,
-    method: "GET",
-    jar: jar,
-    gzip: true
-  };
-
-  return request(op).then(function (res) {
-    return Array.isArray(res) ? res[0] : res;
+function get(url, jar, qs, options, ctx, customHeader) {
+	let callback;
+  var returnPromise = new Promise(function (resolve, reject) {
+    callback = (error, res) => error ? reject(error) : resolve(res);
   });
+	if (getType(qs) == "Object") 
+    for (let prop in qs) {
+      if (getType(qs[prop]) == 'Object')
+        qs[prop] = JSON.stringify(qs[prop]);
+    }
+	var op = {
+    headers: getHeaders(url, options, ctx, customHeader),
+		timeout: 60000,
+		qs,
+		jar,
+		gzip: true
+	}
+
+  request.get(url, op, callback);
+
+  return returnPromise;
 }
 
 function post(url, jar, form, options, ctx, customHeader) {
-  const op = {
+  let callback;
+  var returnPromise = new Promise(function (resolve, reject) {
+    callback = (error, res) => error ? reject(error) : resolve(res);
+  });
+  
+	var op = {
     headers: getHeaders(url, options, ctx, customHeader),
     timeout: 60000,
-    url: url,
-    method: "POST",
-    form: form,
-    jar: jar,
-    gzip: true
-  };
+		form,
+		jar,
+		gzip: true
+	}
 
-  return request(op).then(function (res) {
-    return Array.isArray(res) ? res[0] : res;
-  });
+  request.post(url, op, callback);
+
+	return returnPromise;
 }
 
 function postFormData(url, jar, form, qs, options, ctx) {
-  const headers = getHeaders(url, options, ctx);
-  headers["Content-Type"] = "multipart/form-data";
-  const op = {
-    headers: headers,
-    timeout: 60000,
-    url: url,
-    method: "POST",
-    formData: form,
-    qs: qs,
-    jar: jar,
-    gzip: true
-  };
-
-  return request(op).then(function (res) {
-    return Array.isArray(res) ? res[0] : res;
+  let callback;
+  var returnPromise = new Promise(function (resolve, reject) {
+    callback = (error, res) => error ? reject(error) : resolve(res);
   });
+  if (getType(qs) == "Object") 
+    for (let prop in qs) {
+      if (getType(qs[prop]) == 'Object')
+        qs[prop] = JSON.stringify(qs[prop]);
+    }
+	var op = {
+		headers: getHeaders(url, options, ctx, {
+      'content-type': 'multipart/form-data'
+    }),
+		timeout: 60000,
+		formData: form,
+		qs,
+		jar,
+		gzip: true
+	}
+
+  request.post(url, op, callback);
+
+	return returnPromise;
 }
+
 
 function padZeros(val, len) {
   val = String(val);
@@ -254,12 +220,10 @@ const j = {
   V: "%2c%22blc%22%3a0%2c%22snd%22%3a0%2c%22ct%22%3a",
   W: "%2c%22s%22%3a0%2c%22blo%22%3a0%7d%2c%22bl%22%3a%7b%22ac%22%3a",
   X: "%2c%22ri%22%3a0%7d%2c%22state%22%3a%7b%22p%22%3a0%2c%22ut%22%3a1",
-  Y:
-    "%2c%22pt%22%3a0%2c%22vis%22%3a1%2c%22bls%22%3a0%2c%22blc%22%3a0%2c%22snd%22%3a1%2c%22ct%22%3a",
-  Z:
-    "%2c%22sb%22%3a1%2c%22t%22%3a%5b%5d%2c%22f%22%3anull%2c%22uct%22%3a0%2c%22s%22%3a0%2c%22blo%22%3a0%7d%2c%22bl%22%3a%7b%22ac%22%3a"
+  Y: "%2c%22pt%22%3a0%2c%22vis%22%3a1%2c%22bls%22%3a0%2c%22blc%22%3a0%2c%22snd%22%3a1%2c%22ct%22%3a",
+  Z: "%2c%22sb%22%3a1%2c%22t%22%3a%5b%5d%2c%22f%22%3anull%2c%22uct%22%3a0%2c%22s%22%3a0%2c%22blo%22%3a0%7d%2c%22bl%22%3a%7b%22ac%22%3a"
 };
-(function () {
+(function() {
   const l = [];
   for (const m in j) {
     i[j[m]] = m;
@@ -271,11 +235,11 @@ const j = {
 
 function presenceEncode(str) {
   return encodeURIComponent(str)
-    .replace(/([_A-Z])|%../g, function (m, n) {
+    .replace(/([_A-Z])|%../g, function(m, n) {
       return n ? "%" + n.charCodeAt(0).toString(16) : m;
     })
     .toLowerCase()
-    .replace(h, function (m) {
+    .replace(h, function(m) {
       return i[m];
     });
 }
@@ -283,7 +247,7 @@ function presenceEncode(str) {
 // eslint-disable-next-line no-unused-vars
 function presenceDecode(str) {
   return decodeURIComponent(
-    str.replace(/[_A-Z]/g, function (m) {
+    str.replace(/[_A-Z]/g, function(m) {
       return j[m];
     })
   );
@@ -308,7 +272,7 @@ function generatePresence(userID) {
           at: time
         },
         ch: {
-          ["p_" + userID]: 0
+					["p_" + userID]: 0
         }
       })
     )
@@ -335,7 +299,7 @@ function getGUID() {
   /** @type {number} */
   let sectionLength = Date.now();
   /** @type {string} */
-  const id = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
+  const id = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function(c) {
     /** @type {number} */
     const r = Math.floor((sectionLength + Math.random() * 16) % 16);
     /** @type {number} */
@@ -405,262 +369,262 @@ function _formatAttachment(attachment1, attachment2) {
     case "sticker":
       return {
         type: "sticker",
-        ID: attachment1.metadata.stickerID.toString(),
-        url: attachment1.url,
+          ID: attachment1.metadata.stickerID.toString(),
+          url: attachment1.url,
 
-        packID: attachment1.metadata.packID.toString(),
-        spriteUrl: attachment1.metadata.spriteURI,
-        spriteUrl2x: attachment1.metadata.spriteURI2x,
-        width: attachment1.metadata.width,
-        height: attachment1.metadata.height,
+          packID: attachment1.metadata.packID.toString(),
+          spriteUrl: attachment1.metadata.spriteURI,
+          spriteUrl2x: attachment1.metadata.spriteURI2x,
+          width: attachment1.metadata.width,
+          height: attachment1.metadata.height,
 
-        caption: attachment2.caption,
-        description: attachment2.description,
+          caption: attachment2.caption,
+          description: attachment2.description,
 
-        frameCount: attachment1.metadata.frameCount,
-        frameRate: attachment1.metadata.frameRate,
-        framesPerRow: attachment1.metadata.framesPerRow,
-        framesPerCol: attachment1.metadata.framesPerCol,
+          frameCount: attachment1.metadata.frameCount,
+          frameRate: attachment1.metadata.frameRate,
+          framesPerRow: attachment1.metadata.framesPerRow,
+          framesPerCol: attachment1.metadata.framesPerCol,
 
-        stickerID: attachment1.metadata.stickerID.toString(), // @Legacy
-        spriteURI: attachment1.metadata.spriteURI, // @Legacy
-        spriteURI2x: attachment1.metadata.spriteURI2x // @Legacy
+          stickerID: attachment1.metadata.stickerID.toString(), // @Legacy
+          spriteURI: attachment1.metadata.spriteURI, // @Legacy
+          spriteURI2x: attachment1.metadata.spriteURI2x // @Legacy
       };
     case "file":
       return {
         type: "file",
-        ID: attachment2.id.toString(),
-        fullFileName: fullFileName,
-        filename: attachment1.name,
-        fileSize: fileSize,
-        original_extension: getExtension(attachment1.original_extension, fullFileName),
-        mimeType: mimeType,
-        url: attachment1.url,
+          ID: attachment2.id.toString(),
+          fullFileName: fullFileName,
+          filename: attachment1.name,
+          fileSize: fileSize,
+          original_extension: getExtension(attachment1.original_extension, fullFileName),
+          mimeType: mimeType,
+          url: attachment1.url,
 
-        isMalicious: attachment2.is_malicious,
-        contentType: attachment2.mime_type,
+          isMalicious: attachment2.is_malicious,
+          contentType: attachment2.mime_type,
 
-        name: attachment1.name // @Legacy
+          name: attachment1.name // @Legacy
       };
     case "photo":
       return {
         type: "photo",
-        ID: attachment1.metadata.fbid.toString(),
-        filename: attachment1.fileName,
-        fullFileName: fullFileName,
-        fileSize: fileSize,
-        original_extension: getExtension(attachment1.original_extension, fullFileName),
-        mimeType: mimeType,
-        thumbnailUrl: attachment1.thumbnail_url,
+          ID: attachment1.metadata.fbid.toString(),
+          filename: attachment1.fileName,
+          fullFileName: fullFileName,
+          fileSize: fileSize,
+          original_extension: getExtension(attachment1.original_extension, fullFileName),
+          mimeType: mimeType,
+          thumbnailUrl: attachment1.thumbnail_url,
 
-        previewUrl: attachment1.preview_url,
-        previewWidth: attachment1.preview_width,
-        previewHeight: attachment1.preview_height,
+          previewUrl: attachment1.preview_url,
+          previewWidth: attachment1.preview_width,
+          previewHeight: attachment1.preview_height,
 
-        largePreviewUrl: attachment1.large_preview_url,
-        largePreviewWidth: attachment1.large_preview_width,
-        largePreviewHeight: attachment1.large_preview_height,
+          largePreviewUrl: attachment1.large_preview_url,
+          largePreviewWidth: attachment1.large_preview_width,
+          largePreviewHeight: attachment1.large_preview_height,
 
-        url: attachment1.metadata.url, // @Legacy
-        width: attachment1.metadata.dimensions.split(",")[0], // @Legacy
-        height: attachment1.metadata.dimensions.split(",")[1], // @Legacy
-        name: fullFileName // @Legacy
+          url: attachment1.metadata.url, // @Legacy
+          width: attachment1.metadata.dimensions.split(",")[0], // @Legacy
+          height: attachment1.metadata.dimensions.split(",")[1], // @Legacy
+          name: fullFileName // @Legacy
       };
     case "animated_image":
       return {
         type: "animated_image",
-        ID: attachment2.id.toString(),
-        filename: attachment2.filename,
-        fullFileName: fullFileName,
-        original_extension: getExtension(attachment2.original_extension, fullFileName),
-        mimeType: mimeType,
+          ID: attachment2.id.toString(),
+          filename: attachment2.filename,
+          fullFileName: fullFileName,
+          original_extension: getExtension(attachment2.original_extension, fullFileName),
+          mimeType: mimeType,
 
-        previewUrl: attachment1.preview_url,
-        previewWidth: attachment1.preview_width,
-        previewHeight: attachment1.preview_height,
+          previewUrl: attachment1.preview_url,
+          previewWidth: attachment1.preview_width,
+          previewHeight: attachment1.preview_height,
 
-        url: attachment2.image_data.url,
-        width: attachment2.image_data.width,
-        height: attachment2.image_data.height,
+          url: attachment2.image_data.url,
+          width: attachment2.image_data.width,
+          height: attachment2.image_data.height,
 
-        name: attachment1.name, // @Legacy
-        facebookUrl: attachment1.url, // @Legacy
-        thumbnailUrl: attachment1.thumbnail_url, // @Legacy
-        rawGifImage: attachment2.image_data.raw_gif_image, // @Legacy
-        rawWebpImage: attachment2.image_data.raw_webp_image, // @Legacy
-        animatedGifUrl: attachment2.image_data.animated_gif_url, // @Legacy
-        animatedGifPreviewUrl: attachment2.image_data.animated_gif_preview_url, // @Legacy
-        animatedWebpUrl: attachment2.image_data.animated_webp_url, // @Legacy
-        animatedWebpPreviewUrl: attachment2.image_data.animated_webp_preview_url // @Legacy
+          name: attachment1.name, // @Legacy
+          facebookUrl: attachment1.url, // @Legacy
+          thumbnailUrl: attachment1.thumbnail_url, // @Legacy
+          rawGifImage: attachment2.image_data.raw_gif_image, // @Legacy
+          rawWebpImage: attachment2.image_data.raw_webp_image, // @Legacy
+          animatedGifUrl: attachment2.image_data.animated_gif_url, // @Legacy
+          animatedGifPreviewUrl: attachment2.image_data.animated_gif_preview_url, // @Legacy
+          animatedWebpUrl: attachment2.image_data.animated_webp_url, // @Legacy
+          animatedWebpPreviewUrl: attachment2.image_data.animated_webp_preview_url // @Legacy
       };
     case "share":
       return {
         type: "share",
-        ID: attachment1.share.share_id.toString(),
-        url: attachment2.href,
+          ID: attachment1.share.share_id.toString(),
+          url: attachment2.href,
 
-        title: attachment1.share.title,
-        description: attachment1.share.description,
-        source: attachment1.share.source,
+          title: attachment1.share.title,
+          description: attachment1.share.description,
+          source: attachment1.share.source,
 
-        image: attachment1.share.media.image,
-        width: attachment1.share.media.image_size.width,
-        height: attachment1.share.media.image_size.height,
-        playable: attachment1.share.media.playable,
-        duration: attachment1.share.media.duration,
+          image: attachment1.share.media.image,
+          width: attachment1.share.media.image_size.width,
+          height: attachment1.share.media.image_size.height,
+          playable: attachment1.share.media.playable,
+          duration: attachment1.share.media.duration,
 
-        subattachments: attachment1.share.subattachments,
-        properties: {},
+          subattachments: attachment1.share.subattachments,
+          properties: {},
 
-        animatedImageSize: attachment1.share.media.animated_image_size, // @Legacy
-        facebookUrl: attachment1.share.uri, // @Legacy
-        target: attachment1.share.target, // @Legacy
-        styleList: attachment1.share.style_list // @Legacy
+          animatedImageSize: attachment1.share.media.animated_image_size, // @Legacy
+          facebookUrl: attachment1.share.uri, // @Legacy
+          target: attachment1.share.target, // @Legacy
+          styleList: attachment1.share.style_list // @Legacy
       };
     case "video":
       return {
         type: "video",
-        ID: attachment1.metadata.fbid.toString(),
-        filename: attachment1.name,
-        fullFileName: fullFileName,
-        original_extension: getExtension(attachment1.original_extension, fullFileName),
-        mimeType: mimeType,
-        duration: durationVideo,
+          ID: attachment1.metadata.fbid.toString(),
+          filename: attachment1.name,
+          fullFileName: fullFileName,
+          original_extension: getExtension(attachment1.original_extension, fullFileName),
+          mimeType: mimeType,
+          duration: durationVideo,
 
-        previewUrl: attachment1.preview_url,
-        previewWidth: attachment1.preview_width,
-        previewHeight: attachment1.preview_height,
+          previewUrl: attachment1.preview_url,
+          previewWidth: attachment1.preview_width,
+          previewHeight: attachment1.preview_height,
 
-        url: attachment1.url,
-        width: attachment1.metadata.dimensions.width,
-        height: attachment1.metadata.dimensions.height,
+          url: attachment1.url,
+          width: attachment1.metadata.dimensions.width,
+          height: attachment1.metadata.dimensions.height,
 
-        videoType: "unknown",
+          videoType: "unknown",
 
-        thumbnailUrl: attachment1.thumbnail_url // @Legacy
+          thumbnailUrl: attachment1.thumbnail_url // @Legacy
       };
     case "error":
       return {
         type: "error",
 
-        // Save error attachments because we're unsure of their format,
-        // and whether there are cases they contain something useful for debugging.
-        attachment1: attachment1,
-        attachment2: attachment2
+          // Save error attachments because we're unsure of their format,
+          // and whether there are cases they contain something useful for debugging.
+          attachment1: attachment1,
+          attachment2: attachment2
       };
     case "MessageImage":
       return {
         type: "photo",
-        ID: blob.legacy_attachment_id,
-        filename: blob.filename,
-        fullFileName: fullFileName,
-        fileSize: fileSize,
-        original_extension: getExtension(blob.original_extension, fullFileName),
-        mimeType: mimeType,
-        thumbnailUrl: blob.thumbnail.uri,
+          ID: blob.legacy_attachment_id,
+          filename: blob.filename,
+          fullFileName: fullFileName,
+          fileSize: fileSize,
+          original_extension: getExtension(blob.original_extension, fullFileName),
+          mimeType: mimeType,
+          thumbnailUrl: blob.thumbnail.uri,
 
-        previewUrl: blob.preview.uri,
-        previewWidth: blob.preview.width,
-        previewHeight: blob.preview.height,
+          previewUrl: blob.preview.uri,
+          previewWidth: blob.preview.width,
+          previewHeight: blob.preview.height,
 
-        largePreviewUrl: blob.large_preview.uri,
-        largePreviewWidth: blob.large_preview.width,
-        largePreviewHeight: blob.large_preview.height,
+          largePreviewUrl: blob.large_preview.uri,
+          largePreviewWidth: blob.large_preview.width,
+          largePreviewHeight: blob.large_preview.height,
 
-        url: blob.large_preview.uri, // @Legacy
-        width: blob.original_dimensions.x, // @Legacy
-        height: blob.original_dimensions.y, // @Legacy
-        name: blob.filename // @Legacy
+          url: blob.large_preview.uri, // @Legacy
+          width: blob.original_dimensions.x, // @Legacy
+          height: blob.original_dimensions.y, // @Legacy
+          name: blob.filename // @Legacy
       };
     case "MessageAnimatedImage":
       return {
         type: "animated_image",
-        ID: blob.legacy_attachment_id,
-        filename: blob.filename,
-        fullFileName: fullFileName,
-        original_extension: getExtension(blob.original_extension, fullFileName),
-        mimeType: mimeType,
+          ID: blob.legacy_attachment_id,
+          filename: blob.filename,
+          fullFileName: fullFileName,
+          original_extension: getExtension(blob.original_extension, fullFileName),
+          mimeType: mimeType,
 
-        previewUrl: blob.preview_image.uri,
-        previewWidth: blob.preview_image.width,
-        previewHeight: blob.preview_image.height,
+          previewUrl: blob.preview_image.uri,
+          previewWidth: blob.preview_image.width,
+          previewHeight: blob.preview_image.height,
 
-        url: blob.animated_image.uri,
-        width: blob.animated_image.width,
-        height: blob.animated_image.height,
+          url: blob.animated_image.uri,
+          width: blob.animated_image.width,
+          height: blob.animated_image.height,
 
-        thumbnailUrl: blob.preview_image.uri, // @Legacy
-        name: blob.filename, // @Legacy
-        facebookUrl: blob.animated_image.uri, // @Legacy
-        rawGifImage: blob.animated_image.uri, // @Legacy
-        animatedGifUrl: blob.animated_image.uri, // @Legacy
-        animatedGifPreviewUrl: blob.preview_image.uri, // @Legacy
-        animatedWebpUrl: blob.animated_image.uri, // @Legacy
-        animatedWebpPreviewUrl: blob.preview_image.uri // @Legacy
+          thumbnailUrl: blob.preview_image.uri, // @Legacy
+          name: blob.filename, // @Legacy
+          facebookUrl: blob.animated_image.uri, // @Legacy
+          rawGifImage: blob.animated_image.uri, // @Legacy
+          animatedGifUrl: blob.animated_image.uri, // @Legacy
+          animatedGifPreviewUrl: blob.preview_image.uri, // @Legacy
+          animatedWebpUrl: blob.animated_image.uri, // @Legacy
+          animatedWebpPreviewUrl: blob.preview_image.uri // @Legacy
       };
     case "MessageVideo":
       return {
         type: "video",
-        ID: blob.legacy_attachment_id,
-        filename: blob.filename,
-        fullFileName: fullFileName,
-        original_extension: getExtension(blob.original_extension, fullFileName),
-        fileSize: fileSize,
-        duration: durationVideo,
-        mimeType: mimeType,
+          ID: blob.legacy_attachment_id,
+          filename: blob.filename,
+          fullFileName: fullFileName,
+          original_extension: getExtension(blob.original_extension, fullFileName),
+          fileSize: fileSize,
+          duration: durationVideo,
+          mimeType: mimeType,
 
-        previewUrl: blob.large_image.uri,
-        previewWidth: blob.large_image.width,
-        previewHeight: blob.large_image.height,
+          previewUrl: blob.large_image.uri,
+          previewWidth: blob.large_image.width,
+          previewHeight: blob.large_image.height,
 
-        url: blob.playable_url,
-        width: blob.original_dimensions.x,
-        height: blob.original_dimensions.y,
+          url: blob.playable_url,
+          width: blob.original_dimensions.x,
+          height: blob.original_dimensions.y,
 
-        videoType: blob.video_type.toLowerCase(),
+          videoType: blob.video_type.toLowerCase(),
 
-        thumbnailUrl: blob.large_image.uri // @Legacy
+          thumbnailUrl: blob.large_image.uri // @Legacy
       };
     case "MessageAudio":
       return {
         type: "audio",
-        ID: blob.url_shimhash,
-        filename: blob.filename,
-        fullFileName: fullFileName,
-        fileSize: fileSize,
-        duration: durationAudio,
-        original_extension: getExtension(blob.original_extension, fullFileName),
-        mimeType: mimeType,
+          ID: blob.url_shimhash,
+          filename: blob.filename,
+          fullFileName: fullFileName,
+          fileSize: fileSize,
+          duration: durationAudio,
+          original_extension: getExtension(blob.original_extension, fullFileName),
+          mimeType: mimeType,
 
-        audioType: blob.audio_type,
-        url: blob.playable_url,
+          audioType: blob.audio_type,
+          url: blob.playable_url,
 
-        isVoiceMail: blob.is_voicemail
+          isVoiceMail: blob.is_voicemail
       };
     case "StickerAttachment":
     case "Sticker":
       return {
         type: "sticker",
-        ID: blob.id,
-        url: blob.url,
+          ID: blob.id,
+          url: blob.url,
 
-        packID: blob.pack ? blob.pack.id : null,
-        spriteUrl: blob.sprite_image,
-        spriteUrl2x: blob.sprite_image_2x,
-        width: blob.width,
-        height: blob.height,
+          packID: blob.pack ? blob.pack.id : null,
+          spriteUrl: blob.sprite_image,
+          spriteUrl2x: blob.sprite_image_2x,
+          width: blob.width,
+          height: blob.height,
 
-        caption: blob.label,
-        description: blob.label,
+          caption: blob.label,
+          description: blob.label,
 
-        frameCount: blob.frame_count,
-        frameRate: blob.frame_rate,
-        framesPerRow: blob.frames_per_row,
-        framesPerCol: blob.frames_per_column,
+          frameCount: blob.frame_count,
+          frameRate: blob.frame_rate,
+          framesPerRow: blob.frames_per_row,
+          framesPerCol: blob.frames_per_column,
 
-        stickerID: blob.id, // @Legacy
-        spriteURI: blob.sprite_image, // @Legacy
-        spriteURI2x: blob.sprite_image_2x // @Legacy
+          stickerID: blob.id, // @Legacy
+          spriteURI: blob.sprite_image, // @Legacy
+          spriteURI2x: blob.sprite_image_2x // @Legacy
       };
     case "MessageLocation":
       var urlAttach = blob.story_attachment.url;
@@ -692,81 +656,81 @@ function _formatAttachment(attachment1, attachment2) {
 
       return {
         type: "location",
-        ID: blob.legacy_attachment_id,
-        latitude: latitude,
-        longitude: longitude,
-        image: imageUrl,
-        width: width,
-        height: height,
-        url: u || urlAttach,
-        address: where1,
+          ID: blob.legacy_attachment_id,
+          latitude: latitude,
+          longitude: longitude,
+          image: imageUrl,
+          width: width,
+          height: height,
+          url: u || urlAttach,
+          address: where1,
 
-        facebookUrl: blob.story_attachment.url, // @Legacy
-        target: blob.story_attachment.target, // @Legacy
-        styleList: blob.story_attachment.style_list // @Legacy
+          facebookUrl: blob.story_attachment.url, // @Legacy
+          target: blob.story_attachment.target, // @Legacy
+          styleList: blob.story_attachment.style_list // @Legacy
       };
     case "ExtensibleAttachment":
       return {
         type: "share",
-        ID: blob.legacy_attachment_id,
-        url: blob.story_attachment.url,
+          ID: blob.legacy_attachment_id,
+          url: blob.story_attachment.url,
 
-        title: blob.story_attachment.title_with_entities.text,
-        description:
+          title: blob.story_attachment.title_with_entities.text,
+          description:
           blob.story_attachment.description &&
           blob.story_attachment.description.text,
-        source: blob.story_attachment.source
-          ? blob.story_attachment.source.text
-          : null,
+          source: blob.story_attachment.source ?
+          blob.story_attachment.source.text :
+          null,
 
-        image:
+          image:
           blob.story_attachment.media &&
           blob.story_attachment.media.image &&
           blob.story_attachment.media.image.uri,
-        width:
+          width:
           blob.story_attachment.media &&
           blob.story_attachment.media.image &&
           blob.story_attachment.media.image.width,
-        height:
+          height:
           blob.story_attachment.media &&
           blob.story_attachment.media.image &&
           blob.story_attachment.media.image.height,
-        playable:
+          playable:
           blob.story_attachment.media &&
           blob.story_attachment.media.is_playable,
-        duration:
+          duration:
           blob.story_attachment.media &&
           blob.story_attachment.media.playable_duration_in_ms,
-        playableUrl:
-          blob.story_attachment.media == null
-            ? null
-            : blob.story_attachment.media.playable_url,
+          playableUrl:
+          blob.story_attachment.media == null ?
+          null :
+          blob.story_attachment.media.playable_url,
 
-        subattachments: blob.story_attachment.subattachments,
-        properties: blob.story_attachment.properties.reduce(function (obj, cur) {
-          obj[cur.key] = cur.value.text;
-          return obj;
-        }, {}),
+          subattachments: blob.story_attachment.subattachments,
+          properties: blob.story_attachment.properties.reduce(function(obj, cur) {
+            obj[cur.key] = cur.value.text;
+            return obj;
+          }, {}),
 
-        facebookUrl: blob.story_attachment.url, // @Legacy
-        target: blob.story_attachment.target, // @Legacy
-        styleList: blob.story_attachment.style_list // @Legacy
+          facebookUrl: blob.story_attachment.url, // @Legacy
+          target: blob.story_attachment.target, // @Legacy
+          styleList: blob.story_attachment.style_list // @Legacy
       };
     case "MessageFile":
       return {
         type: "file",
-        ID: blob.message_file_fbid,
-        fullFileName: fullFileName,
-        filename: blob.filename,
-        fileSize: fileSize,
-        mimeType: blob.mimetype,
-        original_extension: blob.original_extension || fullFileName.split(".").pop(),
+          ID: blob.message_file_fbid,
+          fullFileName: fullFileName,
+          filename: blob.filename,
+          fileSize: fileSize,
+          mimeType: blob.mimetype,
+          original_extension: blob.original_extension || fullFileName.split(".").pop(),
 
-        url: blob.url,
-        isMalicious: blob.is_malicious,
-        contentType: blob.content_type,
+          url: blob.url,
+          isMalicious: blob.is_malicious,
+          contentType: blob.content_type,
 
-        name: blob.filename
+          name: blob.filename
       };
     default:
       throw new Error(
@@ -783,8 +747,8 @@ function _formatAttachment(attachment1, attachment2) {
 
 function formatAttachment(attachments, attachmentIds, attachmentMap, shareMap) {
   attachmentMap = shareMap || attachmentMap;
-  return attachments
-    ? attachments.map(function (val, i) {
+  return attachments ?
+    attachments.map(function(val, i) {
       if (
         !attachmentMap ||
         !attachmentIds ||
@@ -793,19 +757,16 @@ function formatAttachment(attachments, attachmentIds, attachmentMap, shareMap) {
         return _formatAttachment(val);
       }
       return _formatAttachment(val, attachmentMap[attachmentIds[i]]);
-    })
-    : [];
+    }) : [];
 }
 
 function formatDeltaMessage(m) {
   const md = m.delta.messageMetadata;
 
   const mdata =
-    m.delta.data === undefined
-      ? []
-      : m.delta.data.prng === undefined
-        ? []
-        : JSON.parse(m.delta.data.prng);
+    m.delta.data === undefined ? [] :
+    m.delta.data.prng === undefined ? [] :
+    JSON.parse(m.delta.data.prng);
   const m_id = mdata.map(u => u.i);
   const m_offset = mdata.map(u => u.o);
   const m_length = mdata.map(u => u.l);
@@ -816,6 +777,7 @@ function formatDeltaMessage(m) {
       m_offset[i] + m_length[i]
     );
   }
+
   return {
     type: "message",
     senderID: formatID(md.actorFbId.toString()),
@@ -828,7 +790,7 @@ function formatDeltaMessage(m) {
     mentions: mentions,
     timestamp: md.timestamp,
     isGroup: !!md.threadKey.threadFbId,
-    participantIDs: m.delta.participants || (md.cid ? md.cid.canonicalParticipantFbids : []) || []
+    participantIDs: m.delta.participants
   };
 }
 
@@ -847,27 +809,23 @@ function formatMessage(m) {
     type: "message",
     senderName: originalMessage.sender_name,
     senderID: formatID(originalMessage.sender_fbid.toString()),
-    participantNames: originalMessage.group_thread_info
-      ? originalMessage.group_thread_info.participant_names
-      : [originalMessage.sender_name.split(" ")[0]],
-    participantIDs: originalMessage.group_thread_info
-      ? originalMessage.group_thread_info.participant_ids.map(function (v) {
+    participantNames: originalMessage.group_thread_info ?
+      originalMessage.group_thread_info.participant_names : [originalMessage.sender_name.split(" ")[0]],
+    participantIDs: originalMessage.group_thread_info ?
+      originalMessage.group_thread_info.participant_ids.map(function(v) {
         return formatID(v.toString());
-      })
-      : [formatID(originalMessage.sender_fbid)],
+      }) : [formatID(originalMessage.sender_fbid)],
     body: originalMessage.body || "",
     threadID: formatID(
       (
         originalMessage.thread_fbid || originalMessage.other_user_fbid
       ).toString()
     ),
-    threadName: originalMessage.group_thread_info
-      ? originalMessage.group_thread_info.name
-      : originalMessage.sender_name,
+    threadName: originalMessage.group_thread_info ?
+      originalMessage.group_thread_info.name : originalMessage.sender_name,
     location: originalMessage.coordinates ? originalMessage.coordinates : null,
-    messageID: originalMessage.mid
-      ? originalMessage.mid.toString()
-      : originalMessage.message_id,
+    messageID: originalMessage.mid ?
+      originalMessage.mid.toString() : originalMessage.message_id,
     attachments: formatAttachment(
       originalMessage.attachments,
       originalMessage.attachmentIds,
@@ -924,10 +882,14 @@ function formatHistoryMessage(m) {
 // Get a more readable message type for AdminTextMessages
 function getAdminTextMessageType(type) {
   switch (type) {
+    case 'unpin_messages_v2':
+      return 'log:unpin-message';
+    case 'pin_messages_v2':
+      return 'log:pin-message';
     case "change_thread_theme":
       return "log:thread-color";
     case "change_thread_icon":
-    case "change_thread_quick_reaction":
+    case 'change_thread_quick_reaction':
       return "log:thread-icon";
     case "change_thread_nickname":
       return "log:user-nickname";
@@ -984,7 +946,6 @@ function formatDeltaEvent(m) {
         }
       };
   }
-
   return {
     type: "event",
     threadID: formatID(
@@ -994,12 +955,12 @@ function formatDeltaEvent(m) {
       ).toString()
     ),
     messageID: m.messageMetadata.messageId.toString(),
-    logMessageType: logMessageType,
-    logMessageData: logMessageData,
+    logMessageType,
+    logMessageData,
     logMessageBody: m.messageMetadata.adminText,
     timestamp: m.messageMetadata.timestamp,
     author: m.messageMetadata.actorFbId,
-    participantIDs: (m.participants || []).map(p => p.toString())
+    participantIDs: m.participants
   };
 }
 
@@ -1060,7 +1021,7 @@ function getFrom(str, startToken, endToken) {
   const lastHalf = str.substring(start);
   const end = lastHalf.indexOf(endToken);
   if (end === -1) {
-    throw new Error(
+    throw Error(
       "Could not find endTime `" + endToken + "` in the given string."
     );
   }
@@ -1088,17 +1049,17 @@ function makeParsable(html) {
 function arrToForm(form) {
   return arrayToObject(
     form,
-    function (v) {
+    function(v) {
       return v.name;
     },
-    function (v) {
+    function(v) {
       return v.val;
     }
   );
 }
 
 function arrayToObject(arr, getKey, getValue) {
-  return arr.reduce(function (acc, val) {
+  return arr.reduce(function(acc, val) {
     acc[getKey(val)] = getValue(val);
     return acc;
   }, {});
@@ -1117,21 +1078,6 @@ function makeDefaults(html, userID, ctx) {
   let reqCounter = 1;
   const fb_dtsg = getFrom(html, 'name="fb_dtsg" value="', '"');
 
-  // @Hack Ok we've done hacky things, this is definitely on top 5.
-  // We totally assume the object is flat and try parsing until a }.
-  // If it works though it's cool because we get a bunch of extra data things.
-  //
-  // Update: we don't need this. Leaving it in in case we ever do.
-  //       Ben - July 15th 2017
-
-  // var siteData = getFrom(html, "[\"SiteData\",[],", "},");
-  // try {
-  //   siteData = JSON.parse(siteData + "}");
-  // } catch(e) {
-  //   log.warn("makeDefaults", "Couldn't parse SiteData. Won't have access to some variables.");
-  //   siteData = {};
-  // }
-
   let ttstamp = "2";
   for (let i = 0; i < fb_dtsg.length; i++) {
     ttstamp += fb_dtsg.charCodeAt(i);
@@ -1139,186 +1085,107 @@ function makeDefaults(html, userID, ctx) {
   const revision = getFrom(html, 'revision":', ",");
 
   function mergeWithDefaults(obj) {
-    // @TODO This is missing a key called __dyn.
-    // After some investigation it seems like __dyn is some sort of set that FB
-    // calls BitMap. It seems like certain responses have a "define" key in the
-    // res.jsmods arrays. I think the code iterates over those and calls `set`
-    // on the bitmap for each of those keys. Then it calls
-    // bitmap.toCompressedString() which returns what __dyn is.
-    //
-    // So far the API has been working without this.
-    //
-    //              Ben - July 15th 2017
     const newObj = {
+      av: userID,
       __user: userID,
       __req: (reqCounter++).toString(36),
       __rev: revision,
       __a: 1,
-      // __af: siteData.features,
-      fb_dtsg: ctx.fb_dtsg ? ctx.fb_dtsg : fb_dtsg,
-      jazoest: ctx.ttstamp ? ctx.ttstamp : ttstamp
-      // __spin_r: siteData.__spin_r,
-      // __spin_b: siteData.__spin_b,
-      // __spin_t: siteData.__spin_t,
-    };
-
-    // @TODO this is probably not needed.
-    //         Ben - July 15th 2017
-    // if (siteData.be_key) {
-    //   newObj[siteData.be_key] = siteData.be_mode;
-    // }
-    // if (siteData.pkg_cohort_key) {
-    //   newObj[siteData.pkg_cohort_key] = siteData.pkg_cohort;
-    // }
+      fb_dtsg: ctx.fb_dtsg || fb_dtsg,
+      jazoest: ctx.ttstamp || ttstamp
+    }
 
     if (!obj) return newObj;
 
-    for (const prop in obj) {
+    for (var prop in obj) {
       if (obj.hasOwnProperty(prop)) {
-        if (!newObj[prop]) {
+        if (!newObj[prop])
           newObj[prop] = obj[prop];
-        }
       }
     }
 
     return newObj;
   }
 
-  function postWithDefaults(url, jar, form, ctxx, customHeader = {}) {
-    return post(url, jar, mergeWithDefaults(form), ctx.globalOptions, ctxx || ctx, customHeader);
-  }
-
-  function getWithDefaults(url, jar, qs, ctxx, customHeader = {}) {
-    return get(url, jar, mergeWithDefaults(qs), ctx.globalOptions, ctxx || ctx, customHeader);
-  }
-
-  function postFormDataWithDefault(url, jar, form, qs, ctxx) {
-    return postFormData(
-      url,
-      jar,
-      mergeWithDefaults(form),
-      mergeWithDefaults(qs),
-      ctx.globalOptions,
-      ctxx || ctx
-    );
-  }
-
   return {
-    get: getWithDefaults,
-    post: postWithDefaults,
-    postFormData: postFormDataWithDefault
+    get: (url, jar, qs, ctxx, customHeader = {}) => get(url, jar, mergeWithDefaults(qs), ctx.globalOptions, ctxx || ctx, customHeader),
+    post: (url, jar, form, ctxx, customHeader = {}) => post(url, jar, mergeWithDefaults(form), ctx.globalOptions, ctxx || ctx, customHeader),
+    postFormData: (url, jar, form, qs, ctxx) => postFormData(url, jar, mergeWithDefaults(form), mergeWithDefaults(qs), ctx.globalOptions, ctxx || ctx)
   };
 }
 
-function parseAndCheckLogin(ctx, defaultFuncs, retryCount, sourceCall) {
-  if (retryCount == undefined) {
-    retryCount = 0;
-  }
-  if (sourceCall == undefined) {
+function parseAndCheckLogin(ctx, http, retryCount) {
+  var delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+  var _try = (tryData) => new Promise(function(resolve, reject) {
     try {
-      throw new Error();
+      resolve(tryData());
+    } catch (error) {
+      reject(error);
     }
-    catch (e) {
-      sourceCall = e;
-    }
-  }
-  return function (data) {
-    return tryPromise(function () {
-      log.verbose("parseAndCheckLogin", data.body);
+  });
+  if (retryCount == undefined) retryCount = 0;
+
+  return function(data) {
+    function any() {
       if (data.statusCode >= 500 && data.statusCode < 600) {
         if (retryCount >= 5) {
-          throw new CustomError({
-            message: "Request retry failed. Check the `res` and `statusCode` property on this error.",
-            statusCode: data.statusCode,
-            res: data.body,
-            error: "Request retry failed. Check the `res` and `statusCode` property on this error.",
-            sourceCall: sourceCall
-          });
+          const err = new Error("Request retry failed. Check the `res` and `statusCode` property on this error.");
+          err.statusCode = data.statusCode;
+          err.res = data.body;
+          err.error = "Request retry failed. Check the `res` and `statusCode` property on this error.";
+          throw err;
         }
         retryCount++;
         const retryTime = Math.floor(Math.random() * 5000);
-        log.warn(
-          "parseAndCheckLogin",
-          "Got status code " +
-          data.statusCode +
-          " - " +
-          retryCount +
-          ". attempt to retry in " +
-          retryTime +
-          " milliseconds..."
-        );
-        const url =
-          data.request.uri.protocol +
-          "//" +
-          data.request.uri.hostname +
-          data.request.uri.pathname;
-        if (
-          data.request.headers["Content-Type"].split(";")[0] ===
-          "multipart/form-data"
-        ) {
+        console.warn("parseAndCheckLogin", "Got status code " + data.statusCode + " - " + retryCount + ". attempt to retry in " + retryTime + " milliseconds...");
+        const url = data.request.uri.protocol + "//" + data.request.uri.hostname + data.request.uri.pathname;
+        if (data.request.headers["content-type"].split(";")[0] === "multipart/form-data") {
           return delay(retryTime)
-            .then(function () {
-              return defaultFuncs.postFormData(
-                url,
-                ctx.jar,
-                data.request.formData,
-                {}
-              );
+            .then(function() {
+              return http
+                .postFormData(url, ctx.jar, data.request.formData);
             })
-            .then(parseAndCheckLogin(ctx, defaultFuncs, retryCount, sourceCall));
+            .then(parseAndCheckLogin(ctx, http, retryCount));
         }
         else {
           return delay(retryTime)
-            .then(function () {
-              return defaultFuncs.post(url, ctx.jar, data.request.formData);
+            .then(function() {
+              return http
+                .post(url, ctx.jar, data.request.formData);
             })
-            .then(parseAndCheckLogin(ctx, defaultFuncs, retryCount, sourceCall));
+            .then(parseAndCheckLogin(ctx, http, retryCount));
         }
       }
+
+      if (data.statusCode === 404) return;
+
       if (data.statusCode !== 200)
-        throw new CustomError({
-          message: "parseAndCheckLogin got status code: " + data.statusCode + ". Bailing out of trying to parse response.",
-          statusCode: data.statusCode,
-          res: data.body,
-          error: "parseAndCheckLogin got status code: " + data.statusCode + ". Bailing out of trying to parse response.",
-          sourceCall: sourceCall
-        });
+        throw new Error("parseAndCheckLogin got status code: " + data.statusCode + ". Bailing out of trying to parse response.");
 
       let res = null;
       try {
         res = JSON.parse(makeParsable(data.body));
       } catch (e) {
-        throw new CustomError({
-          message: "JSON.parse error. Check the `detail` property on this error.",
-          detail: e,
-          res: data.body,
-          error: "JSON.parse error. Check the `detail` property on this error.",
-          sourceCall: sourceCall
-        });
+        const err = new Error("JSON.parse error. Check the `detail` property on this error.");
+        err.error = "JSON.parse error. Check the `detail` property on this error.";
+        err.detail = e;
+        err.res = data.body;
+        throw err;
       }
 
       // In some cases the response contains only a redirect URL which should be followed
       if (res.redirect && data.request.method === "GET") {
-        return defaultFuncs
+        return http
           .get(res.redirect, ctx.jar)
-          .then(parseAndCheckLogin(ctx, defaultFuncs, undefined, sourceCall));
+          .then(parseAndCheckLogin(ctx, http));
       }
 
       // TODO: handle multiple cookies?
-      if (
-        res.jsmods &&
-        res.jsmods.require &&
-        Array.isArray(res.jsmods.require[0]) &&
-        res.jsmods.require[0][0] === "Cookie"
-      ) {
-        res.jsmods.require[0][3][0] = res.jsmods.require[0][3][0].replace(
-          "_js_",
-          ""
-        );
-        const cookie = formatCookie(res.jsmods.require[0][3], "facebook");
-        const cookie2 = formatCookie(res.jsmods.require[0][3], "messenger");
-        ctx.jar.setCookie(cookie, "https://www.facebook.com");
-        ctx.jar.setCookie(cookie2, "https://www.messenger.com");
+      if (res.jsmods && res.jsmods.require && Array.isArray(res.jsmods.require[0]) && res.jsmods.require[0][0] === "Cookie") {
+        res.jsmods.require[0][3][0] = res.jsmods.require[0][3][0].replace("_js_", "");
+        const requireCookie = res.jsmods.require[0][3];
+        ctx.jar.setCookie(formatCookie(requireCookie, "facebook"), "https://www.facebook.com");
+        ctx.jar.setCookie(formatCookie(requireCookie, "messenger"), "https://www.messenger.com");
       }
 
       // On every request we check if we got a DTSG and we mutate the context so that we use the latest
@@ -1339,37 +1206,20 @@ function parseAndCheckLogin(ctx, defaultFuncs, retryCount, sourceCall) {
       }
 
       if (res.error === 1357001) {
-        throw new CustomError({
-          message: "Facebook blocked login. Please visit https://facebook.com and check your account.",
-          error: "Not logged in.",
-          res: res,
-          statusCode: data.statusCode,
-          sourceCall: sourceCall
-        });
+        const err = new Error('Facebook blocked the login');
+        err.error = "Not logged in.";
+        throw err;
       }
       return res;
-    });
+    }
+    return _try(any);
   };
 }
 
-function checkLiveCookie(ctx, defaultFuncs) {
-  return defaultFuncs
-    .get("https://m.facebook.com/me", ctx.jar)
-    .then(function (res) {
-      if (res.body.indexOf(ctx.i_userID || ctx.userID) === -1) {
-        throw new CustomError({
-          message: "Not logged in.",
-          error: "Not logged in."
-        });
-      }
-      return true;
-    });
-}
-
 function saveCookies(jar) {
-  return function (res) {
+  return function(res) {
     const cookies = res.headers["set-cookie"] || [];
-    cookies.forEach(function (c) {
+    cookies.forEach(function(c) {
       if (c.indexOf(".facebook.com") > -1) {
         jar.setCookie(c, "https://www.facebook.com");
       }
@@ -1381,20 +1231,21 @@ function saveCookies(jar) {
 }
 
 const NUM_TO_MONTH = [
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "May",
-  "Jun",
-  "Jul",
-  "Aug",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Dec"
+	"Jan",
+	"Feb",
+	"Mar",
+	"Apr",
+	"May",
+	"Jun",
+	"Jul",
+	"Aug",
+	"Sep",
+	"Oct",
+	"Nov",
+	"Dec"
 ];
 const NUM_TO_DAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
 function formatDate(date) {
   let d = date.getUTCDate();
   d = d >= 10 ? d : "0" + d;
@@ -1497,11 +1348,26 @@ function decodeClientPayload(payload) {
 function getAppState(jar) {
   return jar
     .getCookies("https://www.facebook.com")
-    .concat(jar.getCookies("https://facebook.com"))
     .concat(jar.getCookies("https://www.messenger.com"));
 }
+
+function getAccessFromBusiness(jar, Options) {
+  return function(res) {
+    var html = res ? res.body : null;
+    return get('https://business.facebook.com/content_management', jar, null, Options, null, { noRef: true })
+      .then(function(res) {
+        var token = /"accessToken":"([^.]+)","clientID":/g.exec(res.body)[1];
+        return [html, token];
+      })
+      .catch(function() {
+        return [html, null];
+      });
+  }
+}
+
+const meta = prop => new RegExp(`<meta property="${prop}" content="([^"]*)"`);
+
 module.exports = {
-  CustomError,
   isReadableStream,
   get,
   post,
@@ -1540,5 +1406,11 @@ module.exports = {
   getAppState,
   getAdminTextMessageType,
   setProxy,
-  checkLiveCookie
+  getAccessFromBusiness,
+  presenceDecode,
+  presenceEncode,
+  headers,
+  defaultUserAgent,
+  randomUserAgent,
+  meta
 };
